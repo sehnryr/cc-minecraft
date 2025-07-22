@@ -1,0 +1,85 @@
+[env]
+MINECRAFT_VERSION = "{{ get_env(name='MINECRAFT_VERSION', default='1.21.8') }}"
+MINECRAFT_EULA = "{{ get_env(name='MINECRAFT_EULA', default='false') }}"
+MINECRAFT_DIR = "{{ get_env(name='MINECRAFT_DIR', default='/minecraft') }}"
+
+MINECRAFT_SERVER_PROPERTIES_DIFFICULTY = "{{ get_env(name='MINECRAFT_SERVER_PROPERTIES_DIFFICULTY', default='easy') }}"
+MINECRAFT_SERVER_PROPERTIES_SERVER_PORT = "{{ get_env(name='MINECRAFT_SERVER_PROPERTIES_SERVER_PORT', default='4040') }}"
+
+[tools]
+java = "21"
+cargo-binstall = "latest"
+
+[tasks.build]
+run = '''
+server_jar_path="$(pwd)/$MINECRAFT_DIR/server.jar"
+rcon_password="1234"
+
+set_eula() {
+    value=$1
+
+    echo "eula=$value" > "$(pwd)/$MINECRAFT_DIR/eula.txt"
+}
+
+set_server_properties() {
+    key=$1
+    value=$2
+
+    echo "$key=$value" >> "$(pwd)/$MINECRAFT_DIR/server.properties"
+    sed -i "s/$key=.*/$key=$value/g" "$(pwd)/$MINECRAFT_DIR/server.properties"
+}
+
+download_minecraft_server() {
+    destination="$1"
+
+    minecraft_versions_manifest_url="https://piston-meta.mojang.com/mc/game/version_manifest.json"
+    minecraft_version_manifest_url=$(curl "$minecraft_versions_manifest_url" | jq -r ".versions[] | select(.id == \"$MINECRAFT_VERSION\") | .url")
+    echo $minecraft_version_manifest_url
+    minecraft_server_url=$(curl "$minecraft_version_manifest_url" | jq -r .downloads.server.url)
+    echo $minecraft_server_url
+
+    wget $minecraft_server_url -O "$destination"
+}
+
+install_rcon_client() {
+    cargo-binstall rconc
+}
+
+set_eula $MINECRAFT_EULA
+
+set_server_properties difficulty $MINECRAFT_SERVER_PROPERTIES_DIFFICULTY
+set_server_properties server-port $MINECRAFT_SERVER_PROPERTIES_SERVER_PORT
+set_server_properties enable-rcon true
+set_server_properties rcon.password $rcon_password
+set_server_properties rcon.port 25575
+
+download_minecraft_server "$server_jar_path"
+install_rcon_client
+'''
+
+[tasks.run]
+run = '''
+mem_available=$(free -m | awk '/Mem:/ {print $7}')
+server_jar_path="$(pwd)/$MINECRAFT_DIR/server.jar"
+rcon_password="1234"
+
+start_http_server() {
+    socat TCP-LISTEN:8080,crlf,reuseaddr,fork SYSTEM:"echo HTTP/1.1 200 OK; echo Content-Length\: 0;" >/dev/null 2>&1
+}
+
+start_minecraft_server() {
+    server_jar_path="$1"
+
+    cd "$(pwd)/$MINECRAFT_DIR"
+    java -Xmx${mem_available}M -Xms${mem_available}M -jar "$server_jar_path" --nogui
+}
+
+stop_minecraft_server() {
+    rconc 0.0.0.0 25575 --password $rcon_password -- stop
+}
+
+trap stop_minecraft_server SIGINT SIGTERM
+start_minecraft_server "$server_jar_path" &
+
+start_http_server
+'''
