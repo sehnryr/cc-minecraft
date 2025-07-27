@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+mem_available=$(free -m | awk '/Mem:/ {print $7}')
+server_jar_path="$(pwd)/$MINECRAFT_DIR/server.jar"
+rcon_password="1234"
+
+start_http_server() {
+    socat TCP-LISTEN:8080,crlf,reuseaddr,fork SYSTEM:"echo HTTP/1.1 200 OK; echo Content-Length\: 0;" >/dev/null 2>&1
+}
+
+start_minecraft_server() {
+    server_jar_path="$1"
+
+    cd "$(pwd)/$MINECRAFT_DIR"
+    java -Xmx${mem_available}M -Xms${mem_available}M -jar "$server_jar_path" --nogui
+}
+
+stop_minecraft_server() {
+    rconc 0.0.0.0 25575 --password $rcon_password -- stop
+}
+
+trap stop_minecraft_server SIGINT SIGTERM
+start_minecraft_server "$server_jar_path" &
+
+start_http_server

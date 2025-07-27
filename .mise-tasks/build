@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+server_jar_path="$(pwd)/$MINECRAFT_DIR/server.jar"
+rcon_password="1234"
+
+set_eula() {
+    value=$1
+
+    echo "eula=$value" > "$(pwd)/$MINECRAFT_DIR/eula.txt"
+}
+
+set_server_properties() {
+    key=$1
+    value=$2
+
+    echo "$key=$value" >> "$(pwd)/$MINECRAFT_DIR/server.properties"
+    sed -i "s/$key=.*/$key=$value/g" "$(pwd)/$MINECRAFT_DIR/server.properties"
+}
+
+download_minecraft_server() {
+    destination="$1"
+
+    minecraft_versions_manifest_url="https://piston-meta.mojang.com/mc/game/version_manifest.json"
+    minecraft_version_manifest_url=$(curl "$minecraft_versions_manifest_url" | jq -r ".versions[] | select(.id == \"$MINECRAFT_VERSION\") | .url")
+    echo $minecraft_version_manifest_url
+    minecraft_server_url=$(curl "$minecraft_version_manifest_url" | jq -r .downloads.server.url)
+    echo $minecraft_server_url
+
+    wget $minecraft_server_url -O "$destination"
+}
+
+install_rcon_client() {
+    cargo-binstall rconc
+}
+
+set_eula $MINECRAFT_EULA
+
+set_server_properties difficulty $MINECRAFT_SERVER_PROPERTIES_DIFFICULTY
+set_server_properties server-port $MINECRAFT_SERVER_PROPERTIES_SERVER_PORT
+set_server_properties enable-rcon true
+set_server_properties rcon.password $rcon_password
+set_server_properties rcon.port 25575
+
+download_minecraft_server "$server_jar_path"
+install_rcon_client
